@@ -463,7 +463,7 @@ export class GroupHandler {
         {
           providerId,
           modelId,
-          agent: config?.preferredAgent,
+          agent: config?.preferredAgent || 'knowledge-qa',
           ...(variant ? { variant } : {}),
           ...(directory ? { directory } : {}),
         }
