@@ -1,4 +1,4 @@
-import { type ParsedCommand, getHelpText } from '../commands/parser.js';
+import { type ParsedCommand, getHelpText, getLawHelpText, getAgentDisplayName } from '../commands/parser.js';
 import { KNOWN_EFFORT_LEVELS, normalizeEffortLevel, type EffortLevel } from '../commands/effort.js';
 import { feishuClient } from '../feishu/client.js';
 import * as path from 'path';
@@ -862,7 +862,14 @@ export class CommandHandler {
           await this.handleRestartCommand(messageId, command.restartTarget);
           break;
 
-        // 其他命令透传
+        case 'agent_shortcut':
+          await this.handleAgentShortcut(chatId, messageId, context.senderId, context.chatType, command);
+          break;
+
+        case 'law_help':
+          await feishuClient.reply(messageId, getLawHelpText());
+          break;
+
         default:
           await this.handlePassthroughCommand(chatId, messageId, command.type.replace(/^\//, ''), command.commandArgs || '');
           break;
@@ -950,6 +957,49 @@ export class CommandHandler {
     await feishuClient.reply(messageId, '🔄 正在重启 OpenCode，请稍候...');
     const result = await restartOpenCodeProcess();
     await feishuClient.reply(messageId, formatRestartResultText(result));
+  }
+
+  private async handleAgentShortcut(
+    chatId: string,
+    messageId: string,
+    userId: string,
+    chatType: 'p2p' | 'group',
+    command: ParsedCommand
+  ): Promise<void> {
+    const targetAgent = command.agentShortcutName;
+    if (!targetAgent) return;
+
+    let session = chatSessionStore.getSession(chatId);
+    if (!session) {
+      const title = chatType === 'p2p' ? `私聊-${buildSessionTimestamp()}` : `群聊-${buildSessionTimestamp()}`;
+      const chatDefault = chatSessionStore.getSession(chatId)?.defaultDirectory;
+      const dirResult = DirectoryPolicy.resolve({ chatDefaultDirectory: chatDefault });
+      const effectiveDir = dirResult.ok && dirResult.source !== 'server_default' ? dirResult.directory : undefined;
+      const newSession = await opencodeClient.createSession(title, effectiveDir);
+      if (newSession) {
+        chatSessionStore.setSession(chatId, newSession.id, userId, title, { chatType, resolvedDirectory: newSession.directory });
+        session = chatSessionStore.getSession(chatId);
+      } else {
+        await feishuClient.reply(messageId, '❌ 无法创建会话');
+        return;
+      }
+    }
+
+    const previousAgent = session?.preferredAgent;
+    if (previousAgent !== targetAgent) {
+      chatSessionStore.updateConfig(chatId, { preferredAgent: targetAgent });
+    }
+
+    if (command.text) {
+      const sessionId = chatSessionStore.getSessionId(chatId);
+      if (sessionId) {
+        const { groupHandler } = await import('./group.js');
+        await groupHandler.dispatchPrompt(sessionId, command.text, chatId, messageId);
+      }
+    } else {
+      const displayName = getAgentDisplayName(targetAgent);
+      await feishuClient.reply(messageId, `✅ 已切换到【${displayName}】\n\n直接发消息即可开始，无需再加指令前缀`);
+    }
   }
 
   private async handleStatus(chatId: string, messageId: string): Promise<void> {

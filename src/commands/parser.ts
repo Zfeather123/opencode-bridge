@@ -15,6 +15,7 @@ export type CommandType =
   | 'models'       // 列出可用模型
   | 'agent'        // 切换Agent
   | 'agents'       // 列出可用角色
+  | 'agent_shortcut' // 中文Agent快捷指令（/诊断、/文案等）
   | 'role'         // 角色相关操作
   | 'session'      // 会话操作
   | 'project'      // 项目/目录操作
@@ -25,6 +26,7 @@ export type CommandType =
   | 'effort'       // 调整推理强度
   | 'admin'        // 管理员设置
   | 'help'         // 显示帮助
+  | 'law_help'     // 律师IP运营帮助菜单
   | 'status'       // 查看状态
   | 'command'      // 透传命令
   | 'permission'   // 权限响应
@@ -64,6 +66,7 @@ export interface ParsedCommand {
   cronArgs?: string;
   cronSource?: 'slash' | 'natural';
   restartTarget?: string;
+  agentShortcutName?: string;
 }
 
 const BANG_SHELL_ALLOWED_COMMANDS = new Set([
@@ -81,6 +84,35 @@ const BANG_SHELL_ALLOWED_COMMANDS = new Set([
 const BANG_SHELL_BLOCKED_COMMANDS = new Set([
   'vi', 'vim', 'nvim', 'nano',
 ]);
+
+const AGENT_SHORTCUT_MAP: Record<string, string> = {
+  '诊断': 'diagnosis',
+  '问答': 'knowledge-qa',
+  '文案': 'scriptwriter',
+  '脚本': 'scriptwriter',
+  '选题': 'topic-planner',
+  '人设': 'persona-builder',
+  '复盘': 'data-analyst',
+  '数据': 'data-analyst',
+  '转化': 'conversion-advisor',
+  '审核': 'compliance-reviewer',
+  '合规': 'compliance-reviewer',
+};
+
+const AGENT_DISPLAY_NAME: Record<string, string> = {
+  'diagnosis': '账号诊断',
+  'knowledge-qa': '运营问答',
+  'scriptwriter': '文案生成',
+  'topic-planner': '选题规划',
+  'persona-builder': '人设打造',
+  'data-analyst': '数据复盘',
+  'conversion-advisor': '私域转化',
+  'compliance-reviewer': '合规审核',
+};
+
+export function getAgentDisplayName(agentName: string): string {
+  return AGENT_DISPLAY_NAME[agentName] || agentName;
+}
 
 // 命令解析器
 function isSlashCommandToken(token: string): boolean {
@@ -252,6 +284,19 @@ export function parseCommand(text: string): ParsedCommand {
       return {
         type: 'restart',
         restartTarget: args[0]?.trim().toLowerCase() || '',
+      };
+    }
+
+    if (cmd === '帮助') {
+      return { type: 'law_help' };
+    }
+
+    const agentShortcut = AGENT_SHORTCUT_MAP[cmd];
+    if (agentShortcut) {
+      return {
+        type: 'agent_shortcut',
+        agentShortcutName: agentShortcut,
+        text: rawArgsText || undefined,
       };
     }
 
@@ -525,4 +570,32 @@ export function getHelpText(): string {
 • \`/restart opencode\` 重启本地 OpenCode 进程（仅 loopback）
 
 ${cronHelpBlock}`;
+}
+
+export function getLawHelpText(): string {
+  return `⚖️ **律师IP运营助手**
+
+📋 **快捷指令**
+• \`/诊断\` 账号诊断定位（新律师入驻/季度复盘）
+• \`/问答 <问题>\` 运营知识问答（选题、文案、流量、转化等）
+• \`/文案 <选题>\` 生成短视频脚本（含标签标注）
+• \`/选题\` 或 \`/选题 <需求>\` 生成选题规划清单
+• \`/人设\` 设计律师IP人设定位方案
+• \`/复盘\` 账号数据诊断与策略调整
+• \`/转化 <线索描述>\` 私域转化话术与跟进策略
+• \`/审核 <脚本内容>\` 文案合规检查与质量评分
+• \`/帮助\` 显示本菜单
+
+💡 **使用示例**
+• \`/诊断\` → 通过问卷收集信息，输出定位方案
+• \`/问答 律师怎么选垂类\` → 基于知识库回答
+• \`/文案 建工领域工程款纠纷\` → 生成带标签的脚本
+• \`/选题 本周10条\` → 按配比生成选题清单
+• \`/转化 有人私信问工程款能不能要回来\` → 给出话术和跟进策略
+
+📌 **说明**
+• 每个指令会自动切换到对应的专业Agent
+• 直接发消息（不带指令）默认走运营知识问答
+• 所有建议基于知识库，不编造内容
+• 使用 \`/help\` 查看系统完整命令`;
 }
