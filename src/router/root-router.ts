@@ -19,6 +19,7 @@ import { groupHandler } from '../handlers/group.js';
 import { cardActionHandler } from '../handlers/card-action.js';
 import { groupConfig, routerConfig } from '../config.js';
 import { chatSessionStore } from '../store/chat-session.js';
+import { feishuClient } from '../feishu/client.js';
 
 /**
  * 卡片动作处理结果
@@ -86,15 +87,34 @@ export interface QuestionActionCallbacks {
 export class RootRouter {
   private permissionCallbacks: PermissionActionCallbacks | null = null;
   private questionCallbacks: QuestionActionCallbacks | null = null;
+  private botOpenId: string | null = null;
 
-  private shouldSkipGroupMessage(event: FeishuMessageEvent): boolean {
+  private async ensureBotOpenId(): Promise<string | null> {
+    if (this.botOpenId) {
+      return this.botOpenId;
+    }
+    this.botOpenId = await feishuClient.getBotOpenId();
+    return this.botOpenId;
+  }
+
+  private async shouldSkipGroupMessage(event: FeishuMessageEvent): Promise<boolean> {
     if (event.chatType !== 'group') {
       return false;
     }
     if (!groupConfig.requireMentionInGroup) {
       return false;
     }
-    return !Array.isArray(event.mentions) || event.mentions.length === 0;
+    if (!Array.isArray(event.mentions) || event.mentions.length === 0) {
+      return true;
+    }
+    const botId = await this.ensureBotOpenId();
+    if (!botId) {
+      return false;
+    }
+    const isBotMentioned = event.mentions.some(
+      mention => mention.id.open_id === botId
+    );
+    return !isBotMentioned;
   }
 
   /**
@@ -138,7 +158,7 @@ export class RootRouter {
         }
       }
 
-      if (this.shouldSkipGroupMessage(feishuEvent)) {
+      if (await this.shouldSkipGroupMessage(feishuEvent)) {
         if (routerConfig.mode === 'dual') {
           const sessionId = chatSessionStore.getSessionId(feishuEvent.chatId) ?? 'none';
           const conversationKey = `feishu:${feishuEvent.chatId}`;

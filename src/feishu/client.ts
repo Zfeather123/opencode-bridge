@@ -379,6 +379,7 @@ class FeishuClient extends EventEmitter {
   private eventDispatcher: lark.EventDispatcher;
   private cardActionHandler?: (event: FeishuCardActionEvent) => Promise<FeishuCardActionResponse | void>;
   private cardUpdateQueue: Map<string, Promise<boolean>> = new Map();
+  private botOpenId: string | null = null;
 
   // 连接状态和心跳检测
   private connectionState: ConnectionState = 'disconnected';
@@ -465,6 +466,38 @@ class FeishuClient extends EventEmitter {
           this.emit('connectionLost');
         }
       }
+    }
+  }
+
+  async getBotOpenId(): Promise<string | null> {
+    if (this.botOpenId) {
+      return this.botOpenId;
+    }
+
+    try {
+      const response = await (this.client as unknown as {
+        request: (options: {
+          method: string;
+          url: string;
+          data: Record<string, unknown>;
+        }) => Promise<{ code: number; data?: { bot?: { open_id?: string } } }>;
+      }).request({
+        method: 'GET',
+        url: '/open-apis/bot/v3/info',
+        data: {},
+      });
+
+      if (response.code === 0 && response.data?.bot?.open_id) {
+        this.botOpenId = response.data.bot.open_id;
+        console.log(`[飞书] 获取机器人 open_id 成功: ${this.botOpenId}`);
+        return this.botOpenId;
+      }
+      console.error('[飞书] 获取机器人信息失败: 响应数据无效');
+      return null;
+    } catch (error) {
+      const formatted = formatError(error);
+      console.error('[飞书] 获取机器人信息失败:', formatted.message);
+      return null;
     }
   }
 
